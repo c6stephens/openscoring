@@ -74,13 +74,7 @@ import org.jpmml.evaluator.Evaluator;
 import org.jpmml.evaluator.EvaluatorUtil;
 import org.jpmml.evaluator.FieldValue;
 import org.jpmml.evaluator.ModelEvaluator;
-import org.openscoring.common.BatchEvaluationRequest;
-import org.openscoring.common.BatchEvaluationResponse;
-import org.openscoring.common.BatchModelResponse;
-import org.openscoring.common.EvaluationRequest;
-import org.openscoring.common.EvaluationResponse;
-import org.openscoring.common.ModelResponse;
-import org.openscoring.common.SimpleResponse;
+import org.openscoring.common.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.supercsv.prefs.CsvPreference;
@@ -105,7 +99,7 @@ public class ModelResource {
 
 	@GET
 	@Produces(MediaType.APPLICATION_JSON)
-	public BatchModelResponse queryBatch(){
+	public BatchModelResponse queryBatch() {
 		BatchModelResponse batchResponse = new BatchModelResponse();
 
 		List<ModelResponse> responses = new ArrayList<>();
@@ -113,7 +107,6 @@ public class ModelResource {
 		Collection<Map.Entry<String, Model>> entries = this.modelRegistry.entries();
 		for(Map.Entry<String, Model> entry : entries){
 			ModelResponse response = createModelResponse(entry.getKey(), entry.getValue(), false);
-
 			responses.add(response);
 		}
 
@@ -282,6 +275,32 @@ public class ModelResource {
 	}
 
 	@POST
+	@Path("multi")
+	@Consumes(MediaType.APPLICATION_JSON)
+	@Produces(MediaType.APPLICATION_JSON)
+	public MultiModelEvaluationResponse evaluateMultipleModels(MultiModelEvaluationRequest request) {
+		MultiModelEvaluationResponse multiModelResponse = new MultiModelEvaluationResponse(request.getId());
+
+		Map<String, BatchEvaluationRequest> batchRequestsMap = request.getRequests();
+		Map<String, BatchEvaluationResponse> batchResponseMap = new LinkedHashMap<>(batchRequestsMap.size());
+
+		for (Map.Entry<String, BatchEvaluationRequest> entry : batchRequestsMap.entrySet()) {
+			String modelId = entry.getKey();
+			BatchEvaluationRequest batchRequest = entry.getValue();
+
+			List<EvaluationRequest> requests = batchRequest.getRequests();
+			List<EvaluationResponse> responses = doEvaluate(modelId, requests, false, "evaluate.batch");
+
+			BatchEvaluationResponse batchResponse = new BatchEvaluationResponse(batchRequest.getId());
+			batchResponse.setResponses(responses);
+			batchResponseMap.put(modelId, batchResponse);
+		}
+
+		multiModelResponse.setResponses(batchResponseMap);
+		return multiModelResponse;
+	}
+
+	@POST
 	@Path("{id:" + ModelRegistry.ID_REGEX + "}/csv")
 	@Consumes(MediaType.TEXT_PLAIN)
 	@Produces({MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN})
@@ -372,7 +391,7 @@ public class ModelResource {
 	@SuppressWarnings (
 		value = "resource"
 	)
-	private List<EvaluationResponse> doEvaluate(String id, List<EvaluationRequest> requests, boolean allOrNothing, String method){
+	private List<EvaluationResponse> doEvaluate(String id, List<EvaluationRequest> requests, boolean allOrNothing, String method) {
 		Model model = this.modelRegistry.get(id, true);
 		if(model == null){
 			throw new NotFoundException("Model \"" + id + "\" not found");
